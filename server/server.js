@@ -1,77 +1,40 @@
 const express = require('express');
 const multer = require('multer');
-const fs = require('fs');
-const path = require('path');
-const DXFParser = require('dxf-parser');
 const cors = require('cors');
-const dotenv = require('dotenv');
-
-dotenv.config();
-
+const fs = require('fs');
+const DxfParser = require('dxf-parser');
 
 const app = express();
-const PORT = 4000 || process.env.PORT;
 app.use(cors());
-
 const upload = multer({ dest: 'uploads/' });
 
 app.post('/upload', upload.single('file'), (req, res) => {
-  const filePath = path.join(__dirname, req.file.path);
-  const parser = new DXFParser();
+  const parser = new DxfParser();
+  const filePath = req.file.path;
 
   try {
-    const dxfData = parser.parseSync(fs.readFileSync(filePath, 'utf-8'));
-
-    // Extract lines, polylines, blocks
-    const entities = dxfData.entities;
-    const components = [];
-
-    for (const entity of entities) {
-      if (entity.type === 'LINE' || entity.type === 'LWPOLYLINE') {
-        components.push({
-          type: entity.type,
-          layer: entity.layer,
-          length: entity.type === 'LINE'
-            ? calculateLineLength(entity)
-            : calculatePolylineLength(entity),
-        });
-      }
-      if (entity.type === 'INSERT') {
-        components.push({
-          type: 'BLOCK',
-          name: entity.name,
-          layer: entity.layer,
-          position: entity.position,
-        });
-      }
-    }
-
-    fs.unlinkSync(filePath); // Clean up uploaded file
-    res.json({ components });
-  } catch (error) {
-    console.error('DXF Parse Error:', error);
+    const data = fs.readFileSync(filePath, 'utf-8');
+    const dxf = parser.parseSync(data);
+    const entities = dxf.entities;
+    const results = entities
+    .filter(e => ['LINE', 'LWPOLYLINE', 'INSERT'].includes(e.type))
+    .map(e => ({
+      type: e.type,
+      layer: e.layer,
+      length: e.type === 'LINE' ? getLineLength(e) : undefined,
+      block: e.type === 'INSERT' ? e.name : null
+    }));
+  
+    res.json({ components: results });
+  } catch (err) {
     res.status(500).json({ error: 'Failed to parse DXF file' });
   }
 });
 
-function calculateLineLength(entity) {
-  const { start, end } = entity;
-  return Math.sqrt(
-    Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2)
-  );
+function getLineLength(entity) {
+  const dx = entity.vertices[1].x - entity.vertices[0].x;
+  const dy = entity.vertices[1].y - entity.vertices[0].y;
+  return Math.sqrt(dx * dx + dy * dy);
 }
 
-function calculatePolylineLength(entity) {
-  const vertices = entity.vertices || [];
-  let length = 0;
-  for (let i = 1; i < vertices.length; i++) {
-    const dx = vertices[i].x - vertices[i - 1].x;
-    const dy = vertices[i].y - vertices[i - 1].y;
-    length += Math.sqrt(dx * dx + dy * dy);
-  }
-  return length;
-}
-
-app.listen(PORT, () => {
-  console.log(`🚀 Server is running on http://localhost:${PORT}`);
-});
+app.listen(5000, () => console.log('Backend running on http://localhost:5000'));
